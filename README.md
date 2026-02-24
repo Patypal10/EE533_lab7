@@ -1,2 +1,2 @@
-# EE533_lab6
-EE533 Lab 6 SP26
+# EE533_lab7
+EE533 Lab 7 SP26
