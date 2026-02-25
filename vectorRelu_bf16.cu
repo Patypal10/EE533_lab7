@@ -5,7 +5,7 @@
 __global__ void vectorRelu_bfloat16(__nv_bfloat16* A, __nv_bfloat16* B, int16_t N) {
     int i = threadIdx.x;
     if (i < N) {
-         B[i] = __hmax(0, A[i]);
+         B[i] = __hmax(0.0f, A[i]);
     }
 }
 

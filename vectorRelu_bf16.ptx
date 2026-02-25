@@ -18,10 +18,10 @@
 	.param .u16 _Z19vectorRelu_bfloat16P13__nv_bfloat16S0_s_param_2
 )
 {
-	.reg .pred 	%p<3>;
+	.reg .pred 	%p<2>;
 	.reg .b16 	%rs<5>;
-	.reg .f32 	%f<6>;
-	.reg .b32 	%r<6>;
+	.reg .f32 	%f<2>;
+	.reg .b32 	%r<3>;
 	.reg .b64 	%rd<8>;
 
 
@@ -33,15 +33,7 @@
 	@%p1 bra 	$L__BB0_2;
 
 	cvta.to.global.u64 	%rd3, %rd1;
-	mov.u32 	%r3, 0;
-	cvt.rm.f32.s32 	%f2, %r3;
-	cvt.rp.f32.s32 	%f3, %r3;
-	setp.neu.f32 	%p2, %f3, %f2;
-	cvt.rz.f32.s32 	%f4, %r3;
-	mov.b32 	%r4, %f4;
-	or.b32  	%r5, %r4, 1;
-	mov.b32 	%f5, %r5;
-	selp.f32 	%f1, %f5, %f4, %p2;
+	mov.f32 	%f1, 0f00000000;
 	// begin inline asm
 	{  cvt.rn.bf16.f32 %rs1, %f1;}
 
