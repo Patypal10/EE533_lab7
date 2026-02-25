@@ -1,29 +1,31 @@
+
+
 #include <stdio.h>
 
-__global__ void vectorAdd(const float* A, const float* B, float* C, int N) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+__global__ void vectorSub_int16(const int16_t* A, const int16_t* B, int16_t* C, int16_t N) {
+    int16_t i = threadIdx.x;
     if (i < N) {
         C[i] = A[i] - B[i];
     }
 }
 
 int main() {
-    const int N = 1 << 20;  // 1M elements
-    size_t size = N * sizeof(float);
+    const int16_t N = 1 << 10;  // 1028 elements
+    size_t size = N * sizeof(int16_t);
 
     // Allocate host memory
-    float* h_A = (float*)malloc(size);
-    float* h_B = (float*)malloc(size);
-    float* h_C = (float*)malloc(size);
+    int16_t* h_A = (int16_t*)malloc(size);
+    int16_t* h_B = (int16_t*)malloc(size);
+    int16_t* h_C = (int16_t*)malloc(size);
 
     // Initialize host vectors
     for (int i = 0; i < N; i++) {
-        h_A[i] = 1.0f;
-        h_B[i] = 2.0f;
+        h_A[i] = (int16_t)1;
+        h_B[i] = (int16_t)2;
     }
 
     // Allocate device memory
-    float *d_A, *d_B, *d_C;
+    int16_t *d_A, *d_B, *d_C;
     cudaMalloc((void**)&d_A, size);
     cudaMalloc((void**)&d_B, size);
     cudaMalloc((void**)&d_C, size);
@@ -33,9 +35,9 @@ int main() {
     cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
 
     // Launch kernel
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
-    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
+    //int threadsPerBlock = 256;
+    //int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+    vectorSub_int16<<<1, 8>>>(d_A, d_B, d_C, N);
 
     // Copy result back to host
     cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
