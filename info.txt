@@ -11,7 +11,7 @@ PTX Assembly to Support:
 - mov.u32, mov.b16, mov.b32
 - cvt.s32.s16, cvt.u64.u32, cvt.rn.bf16.f32
 - cvta.to.global.u64
-- setp.ge.s32, setp.neu.f32     **Are these instr independant of setp as well?
+- setp.ge.s32
 - @%p1 bra label
 - shl.b64
 - shr.s64
@@ -20,21 +20,104 @@ PTX Assembly to Support:
 - st.global.u16
 - ret
 - fma.rn.bf16
-- or.b32
-- selp.f32
 - mul.wide.s32
 - max.bf16
 
 - // begin inline asm {}, // end inline asm
 - %tid.x
 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Notes:
 - Trying to use only 16 bit registers:
     - parameter addresses are compiled as 64 bit bc expected GPU memory space is 2^64 ig
         - parameter (.param) types can be treated as special memory space or registers but any ops related to calculating with address is same size (64 bit)
-        - will have to simply parse .b64 into 16 bit registers but will have to program with that in mind | **GPU device memory is MAX 2^16 bits for now 2^10 -> enough space for matrix op with 2 18x18 matrices
+        - will have to simply parse .b64 into 16 bit registers but will have to program with that in mind | **GPU device memory is MAX 2^16 bits: if space 2^10 -> enough space for matrix op with 2 18x18 matrices
 
     - similarly thread index is stored in 32 bit reg ig bc thats the maximum block width is 2^32?
-        - will simply parse .32 to 16 bit registers but will have to program with that in mind | **MAX threads is 2^16 per kernel launch
+        - will simply parse .u32 to 16 bit registers but will have to program with that in mind | **MAX threads is 2^15-1 per kernel launch (N max size)
 
-    - in ReLU, there is a constant used I'll convert at compile time to a bf16 in python and replace the inst with 16 bit inst's 
+    - in ReLU, there is a float constant leading to .f32 used - I'll convert at compile time to a bf16 in python and replace the inst with 16 bit inst's
+
+    - Converting everything to 16 bit regs will lead to no longer needing need cvt inst's
+
+- GPU memory space address calculation:
+    - rn, the bulk of the middle chunk after outer loop check chunk is loading the array values
+    - they calc the address of the data by doing array_base_addr + thread_offset
+    - they calc the thread_offset by shifting thread_idx left then right a bunch to utlimately x2 (bc int16/bf16 is 2 bytes)
+    - our mem isn't byte addressable so thread_offset = thread_idx
+    - **SO compiler must recgonize this calc and ignore it (MUST FIND PATTERN PERHAPS TRACE ORIGIN OF ULTIMATE LD)
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Architecture:
+- SIMD 4 lane, multicycle not pipelined, may change if space allows
+
+- Ports exposed to CPU (subject to change):
+    - 5 param ports for pointers to parameter arrays
+    - 1 port for # threads in kernel
+    - 1 port for control (polling)
+    - 2 ports for dmem data and addr so CPU can load GPU dmem
+
+- RegFile:
+    -Kernel with largest reg use is bf16 mac with 22 registers so each thread will need 22 16 bit reg, 1 predicate reg
+        - One regfile with 22 64 bit entries
+        - One regfile with 1 4 bit entries
+        - Perhaps parser can optimize this as a lot of instructions will be removed (addr calc)
+        - **KEEP in mind inline regs (bf16 mult kernel)!!!
+
+- ExUnit:
+    - SIMD standard ex unit
+
+- TensorUnit:
+    - tensor mma inst? put fma for now
+
+- ControlUnit:
+    - Will store the pc, start and reset pc, control FSM, and threads iteration count
+    - FSM:
+        - Fetch -> Decode -> Execute(ex+mm) -> Write Back(regfile+mm)
+        - Loads in ex, Stores in wb
+
+- Memory:
+    - imem is 32 bits for now
+        - 
+    - dmem must be 16*lane_width bit entries to support SIMD loads/stores
+        - for now 2^10 depth
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Base Assembly to support (assume 16 bit operands):
+- ld.param (special load from param ports)
+    - ld.param %rd, [param_port_X]
+
+- ld
+    - ld %rd, [%rs]
+
+- st
+    - st [%rs], %rd
+
+- mov (reg to reg)
+    - mov %rd, %rs
+
+- @%p1 bra 	$L__BB0_2 / ret
+    - in harware will implement as a kernel DONE signal/ignore WB of this thread/lane
+    - kernel done if all theads/lanes commit DONE
+    - Compiler will replace bra with ret
+
+- setp.ge: set predicate register if r1 >= r2   *(int16)
+    - setp.ge %p1, %r1, %r2
+
+- add                                           *(int16)
+    - add %rd, %rs1, %rs2
+
+- sub                                           *(int16)
+    - sub %rd, %rs1, %rs2
+
+- fma: %rd = (%r1 * %r2) + %r3                  *(bf16)
+    - fma %rd, %rs1, %rs2, %rs3
+
+- mul.wide                                      *(int16)
+    - prob wont need used for offset calc in relu
+
+- max                                           *(bf16)
+    - max %rd, %rs1, %rs2
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ISA:
