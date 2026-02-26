@@ -8,7 +8,7 @@ CUDA Kernel Support:
 PTX Assembly to Support:
 - .reg .pred, .b16, .b32 (used for thread idx), .b64 (used for store addr), .f32 (RELU)
 - ld.param.u64, ld.param.s16, ld.global.u16
-- mov.u32, mov.b16, mov.b32
+- mov.u32, mov.b16, mov.b32, mov.f32
 - cvt.s32.s16, cvt.u64.u32, cvt.rn.bf16.f32
 - cvta.to.global.u64
 - setp.ge.s32
@@ -45,6 +45,7 @@ Notes:
     - they calc the address of the data by doing array_base_addr + thread_offset
     - they calc the thread_offset by shifting thread_idx left then right a bunch to utlimately x2 (bc int16/bf16 is 2 bytes)
     - our mem isn't byte addressable so thread_offset = thread_idx
+    - can get rid of shl, shr, cvt, mul(relu) inst's
     - **SO compiler must recgonize this calc and ignore it (MUST FIND PATTERN PERHAPS TRACE ORIGIN OF ULTIMATE LD)
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -73,12 +74,16 @@ Architecture:
 - ControlUnit:
     - Will store the pc, start and reset pc, control FSM, and threads iteration count
     - FSM:
-        - Fetch -> Decode -> Execute(ex+mm) -> Write Back(regfile+mm)
+        - Wait -> Fetch -> Decode -> ExUnit(ex+mm)/TensorUnit -> Write Back(regfile+mm)
         - Loads in ex, Stores in wb
+        1. Fetch : send pc read request to imem
+        2. Decode : recieve inst from imem and break down into control signals and send to control unit to be registered <-(for u shishir)
+        3. ExUnit/TensorUnit : Different states based off decode output to do ops and LOAD TOO
+        4. Write Back : Write into regfile or send write request to dmem. Also update PC
+        5. Wait : suspended state no processing
 
 - Memory:
     - imem is 32 bits for now
-        - 
     - dmem must be 16*lane_width bit entries to support SIMD loads/stores
         - for now 2^10 depth
 
@@ -90,11 +95,12 @@ Base Assembly to support (assume 16 bit operands):
 - ld
     - ld %rd, [%rs]
 
-- st
-    - st [%rs], %rd
+- st (rd has destination addr)
+    - st [%rd], %rs
 
-- mov (reg to reg)
+- mov (reg-reg or imm-reg)
     - mov %rd, %rs
+    - mov %rd, 0x0000U/0f00000000 -> will convert to U type in compiler
 
 - @%p1 bra 	$L__BB0_2 / ret
     - in harware will implement as a kernel DONE signal/ignore WB of this thread/lane
@@ -113,11 +119,19 @@ Base Assembly to support (assume 16 bit operands):
 - fma: %rd = (%r1 * %r2) + %r3                  *(bf16)
     - fma %rd, %rs1, %rs2, %rs3
 
-- mul.wide                                      *(int16)
-    - prob wont need used for offset calc in relu
-
 - max                                           *(bf16)
     - max %rd, %rs1, %rs2
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ISA:
+** Look at README for detailed breakdown
+- Opcodes:
+    - ret: 0000
+    - ld: 0001
+    - st: 0010
+    - mov: 0011
+    - setp.ge: 0100
+    - add: 0101
+    - sub: 0110
+    - fma: 0111
+    - max: 1000
