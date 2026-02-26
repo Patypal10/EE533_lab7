@@ -82,6 +82,12 @@ Architecture:
         4. Write Back : Write into regfile or send write request to dmem. Also update PC
         5. Wait : suspended state no processing
 
+    - **NVM TA SAID ITS SUPPPOSED TO BE PIPELINED
+        1. Ctrl/Fetch
+        2. Decode
+        3. Execute / Tensor
+        4. Writeback
+
 - Memory:
     - imem is 32 bits for now
     - dmem must be 16*lane_width bit entries to support SIMD loads/stores

@@ -7,7 +7,7 @@ module decode_unit (
     // From imem
     input [31:0] inst,
 
-    // To control unit: signals to be registered there
+    // To pipeline reg
     output [4:0] rd_s_out,
     output [3:0] opcode_out,
     output eop_out,
