@@ -64,12 +64,12 @@ always @(*) begin
 
     case (opcode_in)
         `LOAD : begin
-            dmem_addr = rs1_d_in;
-            rd_d = (rs1_type_in) ? {rs1_d_in[15:0], rs1_d_in[15:0], rs1_d_in[15:0], rs1_d_in[15:0]} : 64'd00; // If loading from param reg, param data will be passed into rs1_d in top level
+            dmem_addr = rs1_d_in[15:0];
+            rd_d = {rs1_d_in[15:0], rs1_d_in[15:0], rs1_d_in[15:0], rs1_d_in[15:0]}; // If loading from param reg, param data will be passed into rs1_d pipeline reg in top level
         end
 
         `STORE : begin
-            dmem_addr = rs2_d_in;
+            dmem_addr = rs2_d_in[15:0];
         end
 
         `MOVE : begin

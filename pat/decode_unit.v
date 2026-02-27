@@ -18,7 +18,8 @@ module decode_unit (
     output rs1_type_out,
     output move_source_out,
     output rd_data_source_out,
-    output move_source_thread_idx,
+    output move_source_thread_idx_out,
+    output reg_we_out,
 
     // To regfile
     output [4:0] rs1_s_out,
@@ -40,6 +41,7 @@ wire rs1_type;  // 0 = regular regs, 1 = param regs
 wire move_source;   // 0 = register, 1 = immediate
 wire rd_data_source;    // 0 = ex unit, 1 = tensor unit
 wire move_source_thread_idx;    // 0 = no, 1 = yes move source is %tid.x
+wire reg_we;
 
 // these dont change based off inst so just assign
 assign opcode = inst[3:0];
@@ -60,6 +62,7 @@ always @(*) begin
     move_source = 1'b0;
     rd_data_source = 1'b0;
     move_source_thread_idx = 1'b0;
+    reg_we = 1'b0;
 
     case (opcode)
         `RET : begin
@@ -71,6 +74,7 @@ always @(*) begin
             rs1_s = inst[14:10];
             rs1_type = inst[4];
             rd_data_source = 1'b0;
+            reg_we = 1'b1;
         end
 
         `STORE : begin
@@ -85,12 +89,14 @@ always @(*) begin
             rs1_s = (move_source) ? 5'd0 : inst[14:10];
             move_source_thread_idx = (rs1_s == 5'b11111);
             rd_data_source = 1'b0;
+            reg_we = 1'b1;
         end
 
         `SETP : begin
             rs1_s = inst[8:4];
             rs2_s = inst[13:9];
             rd_data_source = 1'b0;
+            reg_we = 1'b1;
         end
 
         `ADD : begin
@@ -98,6 +104,7 @@ always @(*) begin
             rs1_s = inst[13:9];
             rs2_s = inst[18:14];
             rd_data_source = 1'b0;
+            reg_we = 1'b1;
         end
 
         `SUB : begin
@@ -105,6 +112,7 @@ always @(*) begin
             rs1_s = inst[13:9];
             rs2_s = inst[18:14];
             rd_data_source = 1'b0;
+            reg_we = 1'b1;
         end
 
         `FMA : begin
@@ -113,6 +121,7 @@ always @(*) begin
             rs2_s = inst[18:14];
             rs3_s = inst[24:19];
             rd_data_source = 1'b1;
+            reg_we = 1'b1;
         end
 
         `MAX : begin
@@ -120,6 +129,7 @@ always @(*) begin
             rs1_s = inst[13:9];
             rs2_s = inst[18:14];
             rd_data_source = 1'b0;
+            reg_we = 1'b1;
         end
 
         DEFAULT : begin
@@ -138,6 +148,8 @@ assign dtype_out = dtype;
 assign rs1_type_out = rs1_type;
 assign move_source_out = move_source;
 assign rd_data_source_out = rd_data_source;
+assign move_source_thread_idx_out = move_source_thread_idx;
+assign reg_we_out = reg_we;
 
 assign rs1_s_out = rs1_s;
 assign rs2_s_out = rs2_s;

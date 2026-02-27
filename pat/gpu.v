@@ -86,6 +86,9 @@ wire  [31:0]      pc_ctrl;
 // Control unit -> Ex
 wire  [12:0]      iteration_ct_ctrl;
 
+// Control unit -> Writeback
+wire  [3:0]       curr_threads_finished_ctrl;
+
 
 // Decode -> Ex
 wire  [31:0]      inst;
@@ -105,6 +108,7 @@ wire              rd_data_source;
 wire  [63:0]      rs1_d, rs2_d, rs3_d;
 wire  [3:0]       predicate_d;
 wire              move_source_thread_idx;
+wire              reg_we;
 
 reg   [4:0]       idex_rd_s_reg;
 reg   [3:0]       idex_opcode_reg;
@@ -121,6 +125,7 @@ reg   [63:0]      idex_rs2_d_reg;
 reg   [63:0]      idex_rs3_d_reg;
 reg   [3:0]       idex_predicate_d_reg;
 reg               idex_move_source_thread_idx_reg;
+reg               idex_reg_we_reg;
 
 
 // Ex -> Write back
@@ -143,11 +148,18 @@ reg   [63:0]      exwb_rs2_d_reg;
 reg   [63:0]      exwb_rs3_d_reg;
 reg   [3:0]       exwb_predicate_d_reg;
 reg               exwb_move_source_thread_idx_reg;
+reg               exwb_reg_we_reg;
 reg   [63:0]      exwb_rd_d_reg;
-reg   [63:0]      exwb_dmem_addr_reg;
+reg   [15:0]      exwb_dmem_addr_reg;
 
 // Write back -> Commit
 wire  [63:0]      dmem_dout;
+wire  [3:0]       threads_returned_wb;
+wire  [63:0]      dmem_din_wb;
+wire              dmem_we_wb;
+wire  [3:0]       commit_wb;
+wire  [63:0]      regfile_din_wb;
+
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -160,14 +172,17 @@ control_unit gpu_ctrl (
    .start_pc (mem_addr),
    .num_threads (num_threads),
 
-   // From write back unit
-   .threads_done (),
+   // From writeback unit
+   .threads_returned (threads_returned_wb),
 
     // To imem
    .pc_out (pc_ctrl),
 
    // To register unit
-   .iteration_ct_out(iteration_ct_ctrl)
+   .iteration_ct_out(iteration_ct_ctrl),
+
+   // To writeback unit
+   .curr_threads_finished (curr_threads_finished_ctrl)
 );
 
 decode_unit gpu_decode (
@@ -188,7 +203,8 @@ decode_unit gpu_decode (
    .rs1_type_out (rs1_type),
    .move_source_out (move_source),
    .rd_data_source_out (rd_data_source),
-   .move_source_thread_idx (move_source_thread_idx),
+   .move_source_thread_idx_out (move_source_thread_idx),
+   .reg_we_out (reg_we),
 
     // To regfile
    .rs1_s_out (rs1_s_id),
@@ -211,8 +227,40 @@ execution_unit gpu_ex_unit (
    .move_source_thread_idx_in (idex_move_source_thread_idx),
 
    // To exwb pipeline reg/dmem
-   .rd_d_out (rd_d_ex),
-   .dmem_addr (dmem_addr_ex)   // For loads send read request from here
+   .rd_d_out (rd_d),
+   .dmem_addr (dmem_addr)   // For loads send read request from here
+);
+
+writeback_unit gpu_writeback (
+   .clk (clk),
+   .rst (reset),
+
+    // From control unit
+   .curr_threads_finished (curr_threads_finished_ctrl),
+
+    // From dmem
+   .dmem_dout_in (dmem_dout),
+
+    // From EXWB pipeline register
+   .exwb_opcode_in (exwb_opcode_reg),
+   .exwb_predicated_in (exwb_predicated_reg),
+   .exwb_thread_batch_done_in (exwb_thread_batch_done_reg),
+   .exwb_rd_data_source_in (exwb_rd_data_source_reg),
+   .exwb_predicate_d_in (exwb_predicate_d_reg),
+   .exwb_reg_we_in (exwb_reg_we_reg),
+   .exwb_rd_d_in (exwb_rd_d_reg),
+   .tuwb_rd_d_in,          // attach to tensor unit/wb pipeline reg
+
+    // To control unit
+   .threads_returned_out (threads_returned_wb),
+
+    // To dmem
+   .dmem_din_out (dmem_din_wb),
+   .dmem_we_out (dmem_we_wb),
+
+    // To register unit
+   .commit_out (commit_wb),
+   .regfile_din_out (regfile_din_wb)
 );
 
 register_unit gpu_regfile (
@@ -228,10 +276,10 @@ register_unit gpu_regfile (
    .rs3_s (rs3_s_id),
 
     // From write back unit
-   .opcode,
-   .commit,
-   .rd_s,
-   .rd_d,
+   .opcode (exwb_opcode_reg),
+   .commit (commit_wb),
+   .rd_s (exwb_rd_s_reg),
+   .rd_d (regfile_din_wb),
 
     // To pipeline registers
    .rs1_d (rs1_d),
@@ -254,16 +302,16 @@ instruction_memory gpu_imem (
 );
 
 data_memory gpu_dmem(
-	.addra(dmem_addr),      // Port A is for reading from EX
-	.addrb(),                  // Port B is for writing from WB
+	.addra(dmem_addr[9:0]),             // Port A is for reading from EX
+	.addrb(exwb_dmem_addr_reg[9:0]),    // Port B is for writing from WB
 	.clka(clk),
 	.clkb(clk),
 	.dina(63'd00),
-	.dinb(),
+	.dinb(dmem_din_wb),
 	.douta(dmem_dout),
-	.doutb(),
+	.doutb(63'd00),
 	.wea(1'b0),
-	.web() 
+	.web(dmem_we_wb) 
 );
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------//
@@ -291,6 +339,7 @@ always @(posedge clk) begin
       control_reg <= 0;
       mem_addr <= 0;
       mem_data <= 0;
+
       idex_rd_s_reg <= 0;
       idex_opcode_reg <= 0;
       idex_eop_reg <= 0;
@@ -305,6 +354,9 @@ always @(posedge clk) begin
       idex_rs2_d_reg <= 0;
       idex_rs3_d_reg <= 0;
       idex_predicate_d_reg <= 0;
+      idex_move_source_thread_idx_reg <= 0;
+      idex_reg_we_reg <= 0;
+
    end else begin
       // Parameter assignments
       if (start_prog) begin
@@ -331,6 +383,7 @@ always @(posedge clk) begin
       idex_rs3_d_reg <= rs3_d;
       idex_predicate_d_reg <= predicate_d;
       idex_move_source_thread_idx_reg <= move_source_thread_idx;
+      idex_reg_we_reg <= reg_we;
 
       // EXWB assignments
       exwb_rd_s_reg <= idex_rd_s_reg;
@@ -348,6 +401,7 @@ always @(posedge clk) begin
       exwb_rs3_d_reg <= idex_rs3_d_reg;
       exwb_predicate_d_reg <= idex_predicate_d_reg;
       exwb_move_source_thread_idx_reg <= idex_move_source_thread_idx_reg;
+      exwb_reg_we_reg <= idex_reg_we_reg
       exwb_rd_d_reg <= rd_d;
       exwb_dmem_addr_reg <= dmem_addr;
    end
