@@ -93,7 +93,7 @@ Architecture:
         5. Wait : suspended state no processing
 
     - **NVM TA SAID ITS SUPPPOSED TO BE PIPELINED
-        1. Ctrl/Fetch
+        1. Ctrl(Fetch)
         2. Decode
         3. Execute / Tensor
         4. Writeback

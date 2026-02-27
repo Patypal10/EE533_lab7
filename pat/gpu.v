@@ -66,16 +66,19 @@ module gpu
 // Register interface for testing/demo
 wire [31:0]       din_RI, addr_RI, command_RI, dmem_dout_RI, imem_dout_RI, regfile_dout_RI, pc_RI;
 
+
 // Param registers store input data from CPU
 reg   [15:0]      param0_reg, param1_reg, param2_reg, param3_reg, param4_reg; // 16 bits
 reg   [15:0]      num_threads_reg;  // 16 bits
 reg   [2:0]       control_reg;      // 2-3 bits
 reg   [15:0]      mem_addr_reg, mem_data_reg;  //16 bits
 
+
 // Top-level signals
 wire start_prog;
 
 assign start_prog = (control_reg == 3'd1);
+
 
 // Control unit -> Decode
 wire  [31:0]      pc_ctrl;
@@ -83,9 +86,11 @@ wire  [31:0]      pc_ctrl;
 // Control unit -> Ex
 wire  [12:0]      iteration_ct_ctrl;
 
+
 // Decode -> Ex
 wire  [31:0]      inst;
 wire  [4:0]       rs1_s_id, rs2_s_id, rs3_s_id;
+wire  [15:0]      param_d_id;
 
 wire   [4:0]      rd_s;
 wire   [3:0]      opcode;
@@ -115,7 +120,34 @@ reg   [63:0]      idex_rs1_d_reg;
 reg   [63:0]      idex_rs2_d_reg;
 reg   [63:0]      idex_rs3_d_reg;
 reg   [3:0]       idex_predicate_d_reg;
-reg               idex_move_source_thread_idx;
+reg               idex_move_source_thread_idx_reg;
+
+
+// Ex -> Write back
+
+wire  [63:0]      rd_d;
+wire  [15:0]      dmem_addr;
+
+reg   [4:0]       exwb_rd_s_reg;
+reg   [3:0]       exwb_opcode_reg;
+reg               exwb_eop_reg;
+reg               exwb_predicated_reg;
+reg               exwb_thread_batch_done_reg;
+reg   [15:0]      exwb_imm_reg;
+reg               exwb_dtype_reg;
+reg               exwb_rs1_type_reg;
+reg               exwb_move_source_reg;
+reg               exwb_rd_data_source_reg;
+reg   [63:0]      exwb_rs1_d_reg;
+reg   [63:0]      exwb_rs2_d_reg;
+reg   [63:0]      exwb_rs3_d_reg;
+reg   [3:0]       exwb_predicate_d_reg;
+reg               exwb_move_source_thread_idx_reg;
+reg   [63:0]      exwb_rd_d_reg;
+reg   [63:0]      exwb_dmem_addr_reg;
+
+// Write back -> Commit
+wire  [63:0]      dmem_dout;
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -127,10 +159,6 @@ control_unit gpu_ctrl (
    .start (start_prog),
    .start_pc (mem_addr),
    .num_threads (num_threads),
-
-   // From decode unit
-
-    // From execution unit
 
    // From write back unit
    .threads_done (),
@@ -168,6 +196,25 @@ decode_unit gpu_decode (
    .rs3_s_out (rs3_s_id)
 );
 
+execution_unit gpu_ex_unit (
+   .clk (clk),
+   .rst (reset),
+
+   // From idex pipeline reg
+   .opcode_in (idex_opcode_reg),
+   .imm_in (idex_imm_reg),
+   .dtype_in (idex_dtype_reg),
+   .rs1_type_in (idex_rs1_type_reg),
+   .move_source_in (idex_move_source_reg),
+   .rs1_d_in (idex_rs1_d_reg),
+   .rs2_d_in (rs2_d),
+   .move_source_thread_idx_in (idex_move_source_thread_idx),
+
+   // To exwb pipeline reg/dmem
+   .rd_d_out (rd_d_ex),
+   .dmem_addr (dmem_addr_ex)   // For loads send read request from here
+);
+
 register_unit gpu_regfile (
    .clk (clk),
    .rst (reset),
@@ -181,10 +228,10 @@ register_unit gpu_regfile (
    .rs3_s (rs3_s_id),
 
     // From write back unit
-    input [3:0] opcode,
-    input [3:0] commit,
-    input [4:0] rd_s,
-    input [63:0] rd_d,
+   .opcode,
+   .commit,
+   .rd_s,
+   .rd_d,
 
     // To pipeline registers
    .rs1_d (rs1_d),
@@ -194,7 +241,7 @@ register_unit gpu_regfile (
 );
 
 instruction_memory gpu_imem (
-	.addra(),   // a used for writing imem from reg interface
+	.addra(),         // a used for writing imem from reg interface
 	.addrb(pc_ctrl),  // b used for gpu
 	.clka(clk),
 	.clkb(clk),
@@ -206,7 +253,32 @@ instruction_memory gpu_imem (
 	.web(1'b0)
 );
 
+data_memory gpu_dmem(
+	.addra(dmem_addr),      // Port A is for reading from EX
+	.addrb(),                  // Port B is for writing from WB
+	.clka(clk),
+	.clkb(clk),
+	.dina(63'd00),
+	.dinb(),
+	.douta(dmem_dout),
+	.doutb(),
+	.wea(1'b0),
+	.web() 
+);
+
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------//
+
+// Mux for selecting param reg data input
+always @(*) begin
+   case (rs1_s[2:0])
+      3'd0 : param_d_id = param0_reg;
+      3'd1 : param_d_id = param1_reg;
+      3'd2 : param_d_id = param2_reg;
+      3'd3 : param_d_id = param3_reg;
+      3'd4 : param_d_id = param4_reg;
+      default : param_d_id = param0_reg;
+   endcase
+end
 
 always @(posedge clk) begin
    if (reset) begin
@@ -254,12 +326,30 @@ always @(posedge clk) begin
       idex_rs1_type_reg <= rs1_type;
       idex_move_source_reg <= move_source;
       idex_rd_data_source_reg <= rd_data_source;
-      idex_rs1_d_reg <= rs1_d;
+      idex_rs1_d_reg <= (rs1_type) ? {{48'b0}, param_d_id} : rs1_d;
       idex_rs2_d_reg <= rs2_d;
       idex_rs3_d_reg <= rs3_d;
       idex_predicate_d_reg <= predicate_d;
-      idex_move_source_thread_idx <= move_source_thread_idx;
+      idex_move_source_thread_idx_reg <= move_source_thread_idx;
 
+      // EXWB assignments
+      exwb_rd_s_reg <= idex_rd_s_reg;
+      exwb_opcode_reg <= idex_opcode_reg;
+      exwb_eop_reg <= idex_eop_reg;
+      exwb_predicated_reg <= idex_predicated_reg;
+      exwb_thread_batch_done_reg <= idex_thread_batch_done_reg;
+      exwb_imm_reg <= idex_imm_reg;
+      exwb_dtype_reg <= idex_dtype_reg;
+      exwb_rs1_type_reg <= idex_rs1_type_reg;
+      exwb_move_source_reg <= idex_move_source_reg;
+      exwb_rd_data_source_reg <= idex_rd_data_source_reg;
+      exwb_rs1_d_reg <= idex_rs1_d_reg;
+      exwb_rs2_d_reg <= idex_rs2_d_reg;
+      exwb_rs3_d_reg <= idex_rs3_d_reg;
+      exwb_predicate_d_reg <= idex_predicate_d_reg;
+      exwb_move_source_thread_idx_reg <= idex_move_source_thread_idx_reg;
+      exwb_rd_d_reg <= rd_d;
+      exwb_dmem_addr_reg <= dmem_addr;
    end
 
 end

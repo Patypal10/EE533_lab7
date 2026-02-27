@@ -39,7 +39,7 @@ wire thread_batch_done;
 wire rs1_type;  // 0 = regular regs, 1 = param regs
 wire move_source;   // 0 = register, 1 = immediate
 wire rd_data_source;    // 0 = ex unit, 1 = tensor unit
-wire move_source_thread_idx;
+wire move_source_thread_idx;    // 0 = no, 1 = yes move source is %tid.x
 
 // these dont change based off inst so just assign
 assign opcode = inst[3:0];

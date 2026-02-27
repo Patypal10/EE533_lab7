@@ -8,10 +8,6 @@ module control_unit (
     input start,
     input [15:0] start_pc,
     input [15:0] num_threads,
-    
-    // From decode unit
-
-    // From execution unit
 
     // From write back unit
     input [3:0] threads_done,
