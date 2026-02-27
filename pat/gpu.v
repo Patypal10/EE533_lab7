@@ -49,6 +49,19 @@ module gpu
       input                                clk
    );
 
+
+// Global params
+// Opcodes
+`define RET    4'd0
+`define LOAD   4'd1
+`define STORE  4'd2
+`define MOVE   4'd3
+`define SETP   4'd4
+`define ADD    4'd5
+`define SUB    4'd6
+`define FMA    4'd7
+`define MAX    4'd8
+
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------//
 // Register interface for testing/demo
 wire [31:0]       din_RI, addr_RI, command_RI, dmem_dout_RI, imem_dout_RI, regfile_dout_RI, pc_RI;
@@ -67,6 +80,9 @@ assign start_prog = (control_reg == 3'd1);
 // Control unit -> Decode
 wire  [31:0]      pc_ctrl;
 
+// Control unit -> Ex
+wire  [12:0]      iteration_ct_ctrl;
+
 // Decode -> Ex
 wire  [31:0]      inst;
 wire  [4:0]       rs1_s_id, rs2_s_id, rs3_s_id;
@@ -83,6 +99,7 @@ wire              move_source;
 wire              rd_data_source;
 wire  [63:0]      rs1_d, rs2_d, rs3_d;
 wire  [3:0]       predicate_d;
+wire              move_source_thread_idx;
 
 reg   [4:0]       idex_rd_s_reg;
 reg   [3:0]       idex_opcode_reg;
@@ -98,6 +115,7 @@ reg   [63:0]      idex_rs1_d_reg;
 reg   [63:0]      idex_rs2_d_reg;
 reg   [63:0]      idex_rs3_d_reg;
 reg   [3:0]       idex_predicate_d_reg;
+reg               idex_move_source_thread_idx;
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -112,13 +130,16 @@ control_unit gpu_ctrl (
 
    // From decode unit
 
-    // From ex_unit
+    // From execution unit
 
    // From write back unit
    .threads_done (),
 
     // To imem
-   .pc_out (pc_ctrl)
+   .pc_out (pc_ctrl),
+
+   // To register unit
+   .iteration_ct_out(iteration_ct_ctrl)
 );
 
 decode_unit gpu_decode (
@@ -139,6 +160,7 @@ decode_unit gpu_decode (
    .rs1_type_out (rs1_type),
    .move_source_out (move_source),
    .rd_data_source_out (rd_data_source),
+   .move_source_thread_idx (move_source_thread_idx),
 
     // To regfile
    .rs1_s_out (rs1_s_id),
@@ -149,6 +171,9 @@ decode_unit gpu_decode (
 register_unit gpu_regfile (
    .clk (clk),
    .rst (reset),
+
+   // From control unit
+   .iteration_ct_in (iteration_ct_ctrl),
 
     // From decode unit
    .rs1_s (rs1_s_id),
@@ -170,7 +195,7 @@ register_unit gpu_regfile (
 
 instruction_memory gpu_imem (
 	.addra(),   // a used for writing imem from reg interface
-	.addrb(pc_ctrl),            // b used for gpu
+	.addrb(pc_ctrl),  // b used for gpu
 	.clka(clk),
 	.clkb(clk),
 	.dina(),
@@ -233,6 +258,7 @@ always @(posedge clk) begin
       idex_rs2_d_reg <= rs2_d;
       idex_rs3_d_reg <= rs3_d;
       idex_predicate_d_reg <= predicate_d;
+      idex_move_source_thread_idx <= move_source_thread_idx;
 
    end
 
@@ -247,7 +273,7 @@ generic_regs
       .REG_ADDR_WIDTH      (`GPU_REG_ADDR_WIDTH),     // Width of block addresses -- eg. MODULE_REG_ADDR_WIDTH
       .NUM_COUNTERS        (0),                 // Number of counters
       .NUM_SOFTWARE_REGS   (3),                 // Number of sw regs
-      .NUM_HARDWARE_REGS   (3)                  // Number of hw regs
+      .NUM_HARDWARE_REGS   (4)                  // Number of hw regs
    ) module_regs (
       .reg_req_in       (reg_req_in),
       .reg_ack_in       (reg_ack_in),

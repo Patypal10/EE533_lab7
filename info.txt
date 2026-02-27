@@ -48,6 +48,15 @@ Notes:
     - can get rid of shl, shr, cvt, mul(relu) inst's
     - **SO compiler must recgonize this calc and ignore it (MUST FIND PATTERN PERHAPS TRACE ORIGIN OF ULTIMATE LD)
 
+- Predicated instructions:
+    - It is funky because registers and data mem is 64 bits
+    - So your reading/writing one 64 bit value always
+    - Solution: Just bit mask basically and change the values that pass predication then write back
+    - For regfile its ok bc its combinational, for stores a bit harder
+        - Since wb handled in wb stage, even for stores, first load request in ex stage to have value to bit mask in wb
+        - The actual bit masking occurs in the regfile for reg data changes and in wb for memory data changes
+        - If fail predicating dont commit any writebacks (bitmask commit signal generated in wb)
+
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Architecture:
 - SIMD 4 lane, multicycle not pipelined, may change if space allows
@@ -64,6 +73,7 @@ Architecture:
         - One regfile with 1 4 bit entries
         - Perhaps parser can optimize this as a lot of instructions will be removed (addr calc)
         - **KEEP in mind inline regs (bf16 mult kernel)!!!
+        - register address 5'b11111 will return thread iteration ct and used to calc tid.x in ex
 
 - ExUnit:
     - SIMD standard ex unit
@@ -90,6 +100,7 @@ Architecture:
 
 - Memory:
     - imem is 32 bits for now
+        - 2^16 depth
     - dmem must be 16*lane_width bit entries to support SIMD loads/stores
         - for now 2^10 depth
 
@@ -107,6 +118,7 @@ Base Assembly to support (assume 16 bit operands):
 - mov (reg-reg or imm-reg)
     - mov %rd, %rs
     - mov %rd, 0x0000U/0f00000000 -> will convert to U type in compiler
+    - **NOTE rs=5'b11111 will denote special reg %tid.x compiler should change
 
 - @%p1 bra 	$L__BB0_2 / ret
     - in harware will implement as a kernel DONE signal/ignore WB of this thread/lane

@@ -4,6 +4,9 @@ module register_unit (
     input clk,
     input rst,
 
+    // From control unit
+    input [12:0] iteration_ct_in,
+
     // From decode unit
     input [4:0] rs1_s,
     input [4:0] rs2_s,
@@ -46,7 +49,7 @@ always @(*) begin
     new_predicate_d = {thread3_predicate_d, thread2_predicate_d, thread1_predicate_d, thread0_predicate_d};
 
     // Read logic
-    rs1_d = data_reg[rs1_s];
+    rs1_d = (rs1_s == 5'b11111) ? {{51'b0}, iteration_ct_in} : data_reg[rs1_s];
     rs2_d = data_reg[rs2_s];
     rs3_d = data_reg[rs3_s];
     predicate_d = predicate_reg;
@@ -64,7 +67,7 @@ always @(posedge clk) begin
             if (opcode == 4'd4) begin   // write to predicate registers if setp
                 predicate_reg <= new_predicate_d;
             end else begin
-                data_reg[rd_s] <= new_rd_d;
+                data_reg[rd_s] <= ()new_rd_d;
             end
         end
     end
